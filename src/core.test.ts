@@ -115,7 +115,7 @@ describe("RaftKv", () => {
   // Section 3: Leader Heartbeat Tests
   describe("3. Leader Heartbeat", () => {
     it("3-1: leader should send periodic heartbeats", async () => {
-      const storage = createMemoryStorage({ role: "follower", commitIndex: 0 });
+      const storage = createMemoryStorage();
       const heartbeats: AppendEntriesArgs[] = [];
 
       const mockRpc = createMockRpc({
@@ -147,7 +147,7 @@ describe("RaftKv", () => {
     });
 
     it("3-2: leader should step down on higher term response", async () => {
-      const storage = createMemoryStorage({ role: "follower", commitIndex: 0 });
+      const storage = createMemoryStorage();
       const timers = createMockTimers();
 
       // One node will respond with higher term
@@ -183,7 +183,7 @@ describe("RaftKv", () => {
   // Section 4: Log Replication Tests
   describe("4. Log Replication", () => {
     it("4-1: should replicate client commands to followers", async () => {
-      const storage = createMemoryStorage({ role: "follower", commitIndex: 0 });
+      const storage = createMemoryStorage();
       const appendedEntries: AppendEntriesArgs[] = [];
 
       const mockRpc = createMockRpc({
@@ -218,7 +218,7 @@ describe("RaftKv", () => {
     });
 
     it("4-2: should handle log inconsistency", async () => {
-      const storage = createMemoryStorage({ role: "follower", commitIndex: 0 });
+      const storage = createMemoryStorage();
       const appendedEntries: AppendEntriesArgs[] = [];
 
       // Simulate a follower that rejects first append due to log mismatch
@@ -259,7 +259,7 @@ describe("RaftKv", () => {
     });
 
     it("4-4: should replicate no-op entry on leader election", async () => {
-      const storage = createMemoryStorage({ role: "follower", commitIndex: 0 });
+      const storage = createMemoryStorage();
       const appendedEntries: AppendEntriesArgs[] = [];
 
       const mockRpc = createMockRpc({
@@ -293,7 +293,7 @@ describe("RaftKv", () => {
   // Let's continue with Section 5: Follower AppendEntries Tests
   describe("5. Follower AppendEntries", () => {
     it("5-1: should not apply logs beyond leaderCommit", async () => {
-      const storage = createMemoryStorage({ role: "follower", commitIndex: 0 });
+      const storage = createMemoryStorage();
       const timers = createMockTimers();
       const node = await initializeRaftKv({
         nodeId: "node1",
@@ -320,7 +320,7 @@ describe("RaftKv", () => {
     });
 
     it("5-2: should reject AppendEntries with mismatched prevLogTerm", async () => {
-      const storage = createMemoryStorage({ role: "follower", commitIndex: 0 });
+      const storage = createMemoryStorage();
       await storage.appendLogEntries(0, [
         { term: 1, command: { op: "set", key: "x", value: "1" } },
       ]);
@@ -349,10 +349,7 @@ describe("RaftKv", () => {
     // Section 6: Client Request Tests
     describe("6. Client Request", () => {
       it("6-1: follower should redirect client requests", async () => {
-        const storage = createMemoryStorage({
-          role: "follower",
-          commitIndex: 0,
-        });
+        const storage = createMemoryStorage();
         await storage.saveState({ term: 1, votedFor: "leader" });
 
         const timers = createMockTimers();
@@ -374,10 +371,7 @@ describe("RaftKv", () => {
       });
 
       it("6-2: candidate should return in-election for client requests", async () => {
-        const storage = createMemoryStorage({
-          role: "follower",
-          commitIndex: 0,
-        });
+        const storage = createMemoryStorage();
         const timers = createMockTimers();
         const node = await initializeRaftKv({
           nodeId: "node1",
@@ -397,10 +391,7 @@ describe("RaftKv", () => {
       });
 
       it("6-3: leader should handle client requests successfully", async () => {
-        const storage = createMemoryStorage({
-          role: "follower",
-          commitIndex: 0,
-        });
+        const storage = createMemoryStorage();
         const timers = createMockTimers();
         const node = await initializeRaftKv({
           nodeId: "node1",
@@ -430,10 +421,7 @@ describe("RaftKv", () => {
     // Section 7: Timeout/Retry Tests
     describe("7. Timeout and Retry", () => {
       it("7-1: should retry AppendEntries on timeout", async () => {
-        const storage = createMemoryStorage({
-          role: "follower",
-          commitIndex: 0,
-        });
+        const storage = createMemoryStorage();
         const appendEntryAttempts: AppendEntriesArgs[] = [];
 
         // First call times out, second succeeds
@@ -471,10 +459,7 @@ describe("RaftKv", () => {
       });
 
       it("7-2: should retry election on timeout", async () => {
-        const storage = createMemoryStorage({
-          role: "follower",
-          commitIndex: 0,
-        });
+        const storage = createMemoryStorage();
         const voteRequests: RequestVoteArgs[] = [];
 
         const mockRpc = createMockRpc({
@@ -504,18 +489,9 @@ describe("RaftKv", () => {
     // Section 8: Network Partition Tests
     describe("8. Network Partition", () => {
       it("8-1: should handle leader crash and elect new leader", async () => {
-        const storage1 = createMemoryStorage({
-          role: "follower",
-          commitIndex: 0,
-        });
-        const storage2 = createMemoryStorage({
-          role: "follower",
-          commitIndex: 0,
-        });
-        const storage3 = createMemoryStorage({
-          role: "follower",
-          commitIndex: 0,
-        });
+        const storage1 = createMemoryStorage();
+        const storage2 = createMemoryStorage();
+        const storage3 = createMemoryStorage();
 
         const timers1 = createMockTimers();
         const timers2 = createMockTimers();
@@ -572,10 +548,7 @@ describe("RaftKv", () => {
       });
 
       it("8-2: should resolve split-brain situation", async () => {
-        const storage = createMemoryStorage({
-          role: "follower",
-          commitIndex: 0,
-        });
+        const storage = createMemoryStorage();
         const timers = createMockTimers();
 
         // Create a node that thinks it's leader with term 2
@@ -608,10 +581,7 @@ describe("RaftKv", () => {
     // Section 9: Storage/Lock Tests
     describe("9. Storage and Lock", () => {
       it("9-1: should handle concurrent requests with lock", async () => {
-        const storage = createMemoryStorage({
-          role: "follower",
-          commitIndex: 0,
-        });
+        const storage = createMemoryStorage();
         const timers = createMockTimers();
         const node = await initializeRaftKv({
           nodeId: "node1",
@@ -650,10 +620,7 @@ describe("RaftKv", () => {
       });
 
       it("9-2: should maintain storage consistency", async () => {
-        const storage = createMemoryStorage({
-          role: "follower",
-          commitIndex: 0,
-        });
+        const storage = createMemoryStorage();
         const timers = createMockTimers();
         const node = await initializeRaftKv({
           nodeId: "node1",

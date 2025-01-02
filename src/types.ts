@@ -11,7 +11,7 @@ export type RaftKvStorage = {
   loadState: () => Promise<PersistentState>;
   saveState: (state: PersistentState) => Promise<void>;
   // 不正なLogEntryを上書きながら追加する [from, startIndex + entries.length)の範囲のLogEntryを追加する
-  // 追加した最後のLogEntryのindexを返す
+  // 追加した最後のLogEntryのindexを返す。indexは1から始まる
   appendLogEntries: (from: number, entries: LogEntry[]) => Promise<number>;
   getLastLogEntry: () => Promise<PersistedLogEntry | null>;
   getLogEntryByIndex: (index: number) => Promise<PersistedLogEntry | null>;

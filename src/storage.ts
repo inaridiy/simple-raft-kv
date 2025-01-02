@@ -1,7 +1,6 @@
 import type {
   KvCommand,
   LogEntry,
-  MemoryState,
   PersistedLogEntry,
   PersistentState,
   RaftKvStorage,
@@ -10,19 +9,18 @@ import type {
 type MemoryStorageState = {
   persistentState: PersistentState;
   logEntries: PersistedLogEntry[];
+  lastApplied: number;
   kvStore: Map<string, string>;
 };
 
 export const createMemoryStorage = (
-  initialState: MemoryState,
+  injectState?: MemoryStorageState,
 ): RaftKvStorage => {
   // Initialize in-memory state
-  const state: MemoryStorageState = {
-    persistentState: {
-      term: 0,
-      votedFor: null,
-    },
+  const state: MemoryStorageState = injectState || {
+    persistentState: { term: 0, votedFor: null },
     logEntries: [],
+    lastApplied: 0,
     kvStore: new Map(),
   };
 
@@ -40,26 +38,26 @@ export const createMemoryStorage = (
   };
 
   return {
-    async loadState(): Promise<PersistentState> {
+    async loadState() {
       return state.persistentState;
     },
 
-    async saveState(newState: PersistentState): Promise<void> {
+    async saveState(newState: PersistentState) {
       state.persistentState = newState;
     },
 
     async appendLogEntries(from: number, entries: LogEntry[]): Promise<number> {
-      // Remove any existing entries from the 'from' index
-      state.logEntries = state.logEntries.filter((entry) => entry.index < from);
+      if (entries.length === 0) return state.logEntries.length;
 
-      // Append new entries with proper indexing
-      const newEntries = entries.map((entry, i) => ({
-        ...entry,
-        index: from + i,
-      }));
-      state.logEntries.push(...newEntries);
+      // 既存のエントリを削除して新しいエントリで上書き
+      state.logEntries = [
+        ...state.logEntries.slice(0, from - 1),
+        ...entries.map((entry, idx) => ({
+          ...entry,
+          index: from + idx,
+        })),
+      ];
 
-      // Return the index of the last appended entry
       return from + entries.length - 1;
     },
 
@@ -69,22 +67,19 @@ export const createMemoryStorage = (
     },
 
     async getLogEntryByIndex(index: number): Promise<PersistedLogEntry | null> {
-      return state.logEntries.find((entry) => entry.index === index) ?? null;
+      const entry = state.logEntries[index - 1];
+      return entry || null;
     },
 
     async commitLogEntries(endIndex: number): Promise<void> {
-      // Apply all entries from lastCommitIndex to endIndex
-      const entriesToCommit = state.logEntries.filter(
-        (entry) =>
-          entry.index >= initialState.commitIndex && entry.index < endIndex,
-      );
-
-      for (const entry of entriesToCommit) {
-        applyCommand(entry.command);
+      // 未適用のエントリを適用
+      for (let i = state.lastApplied; i < endIndex; i++) {
+        const entry = state.logEntries[i];
+        if (entry) {
+          applyCommand(entry.command);
+        }
       }
-
-      // Update commit index
-      initialState.commitIndex = endIndex;
+      state.lastApplied = endIndex;
     },
   };
 };
