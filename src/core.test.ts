@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createMemoryStorage } from "../storage.js";
+import { initializeRaftKv } from "./core.js";
+import { createMemoryStorage } from "./storage.js";
 import type {
   AppendEntriesArgs,
   AppendEntriesReply,
@@ -9,8 +10,7 @@ import type {
   RaftKvRpc,
   RequestVoteArgs,
   RequestVoteReply,
-} from "../types.js";
-import { initializeRaftKv } from "./index.js";
+} from "./types.js";
 
 interface MockRpcConfig {
   requestVoteResponse?: RequestVoteReply;
