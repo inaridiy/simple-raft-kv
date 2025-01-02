@@ -58,6 +58,8 @@ export const initializeRaftKv = async (params: RaftKvParams) => {
       nextIndex.set(node.id, (lastLogEntry?.index ?? -1) + 1);
       matchIndex.set(node.id, 0);
     }
+
+    void _appendAndCommitCommands([{ op: "noop" }]);
   };
 
   const _startElection = async () => {
@@ -127,34 +129,103 @@ export const initializeRaftKv = async (params: RaftKvParams) => {
       leaderCommit: commitIndex,
     };
 
-    for (const node of nodes) _sendAppendEntries(node, heartbeatArgs);
+    //TODO: heartbeatが詰まる可能性に対処
+    for (const node of nodes) _sendAppendEntriesExclusive(node, heartbeatArgs);
   };
 
-  const _sendAppendEntriesLock = createLock();
   const _sendAppendEntries = async (
     node: { id: string; rpc: RaftKvRpc },
     args: AppendEntriesArgs,
   ) => {
-    // node単位で排他制御を行う
-    const unlock = await _sendAppendEntriesLock(node.id);
+    const result = await Promise.race([
+      node.rpc.appendEntries(args),
+      timers.appendEntriesTimeout().then(() => null),
+    ]);
+    // タイムアウトした場合はリトライ
+    if (!result) return await _sendAppendEntries(node, args);
+
+    // 既にリーダーでない場合は即時フォロワー降格
+    if (result.term > args.term) {
+      await _becomeFollower(result.term);
+      _resetElectionTimeout();
+      return;
+    }
+
+    // 成功した場合は終了
+    if (result.success) return;
+
+    // 以後appendEntriesに失敗した = ログが不整合に対処する
+    const nextIndexValue = (nextIndex.get(node.id) ?? 1) - 1;
+    if (nextIndexValue < 1) throw new Error("WTF: nextIndexValue < 1");
+    nextIndex.set(node.id, nextIndexValue);
+
+    const nextIndexLogEntry = await storage.getLogEntryByIndex(nextIndexValue);
+    const prevLogEntry = await storage.getLogEntryByIndex(nextIndexValue - 1);
+    if (!nextIndexLogEntry)
+      throw new Error("WTF: nextIndexLogEntry is undefined");
+
+    const appendEntriesArgs = {
+      term: args.term,
+      leaderId: nodeId,
+      prevLogIndex: prevLogEntry?.index ?? 0,
+      prevLogTerm: prevLogEntry?.term ?? 0,
+      entries: [nextIndexLogEntry],
+      leaderCommit: commitIndex,
+    };
+
+    await _sendAppendEntries(node, appendEntriesArgs);
+    await _sendAppendEntries(node, args);
+  };
+
+  const _sendAppendEntriesLock = createLock();
+  const _sendAppendEntriesExclusive = async (
+    node: { id: string; rpc: RaftKvRpc },
+    args: AppendEntriesArgs,
+  ) => {
+    const unlock = await _sendAppendEntriesLock();
     try {
-      const result = await node.rpc.appendEntries(args);
-
-      // 既にリーダーでない場合は即時フォロワー降格
-      if (result.term > args.term) {
-        await _becomeFollower(result.term);
-        _resetElectionTimeout();
-        return;
-      }
-
-      if (result.success) {
-        nextIndex.set(node.id, args.prevLogIndex + args.entries.length + 1);
-        matchIndex.set(node.id, args.prevLogIndex + args.entries.length);
-        return;
-      }
+      await _sendAppendEntries(node, args);
     } finally {
       unlock();
     }
+  };
+
+  const _appendAndCommitCommands = async (commands: KvCommand[]) => {
+    const state = await storage.loadState();
+    const lastLogEntry = await storage.getLastLogEntry();
+    const newLogEntries: LogEntry[] = commands.map((command, i) => ({
+      term: state.term,
+      command,
+    }));
+    await storage.appendLogEntries(lastLogEntry?.index ?? 0, newLogEntries);
+
+    const applyNeeded = Math.floor(nodes.length / 2) + 1;
+
+    const appendEntriesArgs = {
+      term: state.term,
+      leaderId: nodeId,
+      prevLogIndex: lastLogEntry?.index ?? 0,
+      prevLogTerm: lastLogEntry?.term ?? 0,
+      entries: newLogEntries,
+      leaderCommit: commitIndex,
+    };
+
+    const isAppendSuccess = await new Promise<boolean>((resolve) => {
+      let successCount = 1;
+      const promises = nodes.map((node) =>
+        _sendAppendEntries(node, appendEntriesArgs).then(() => {
+          successCount++;
+          if (successCount >= applyNeeded) resolve(true);
+        }),
+      );
+
+      Promise.all(promises).then(() => resolve(false));
+    });
+
+    if (!isAppendSuccess) throw new Error("WTF: isAppendSuccess is false");
+
+    commitIndex += newLogEntries.length;
+    void storage.commitLogEntries(commitIndex);
   };
 
   const handleRequestLock = createLock();
@@ -226,7 +297,13 @@ export const initializeRaftKv = async (params: RaftKvParams) => {
   };
 
   const handleClientRequest = async (commands: KvCommand[]) => {
-    if (role !== "leader") throw new Error("not a leader");
+    const { votedFor } = await storage.loadState();
+    if (role === "follower") return { type: "redirect", redirect: votedFor };
+    if (role === "candidate") return { type: "in-election" };
+
+    await _appendAndCommitCommands(commands);
+
+    return { type: "success" };
   };
 
   const getNodeState = async (): Promise<MemoryState & PersistentState> => {
@@ -241,5 +318,6 @@ export const initializeRaftKv = async (params: RaftKvParams) => {
     getNodeState,
     handleAppendEntries,
     handleRequestVote,
+    handleClientRequest,
   };
 };
