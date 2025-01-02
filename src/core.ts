@@ -152,7 +152,11 @@ export const initializeRaftKv = async (params: RaftKvParams) => {
     }
 
     // 成功した場合は終了
-    if (result.success) return;
+    if (result.success) {
+      nextIndex.set(node.id, args.prevLogIndex + args.entries.length + 1);
+      matchIndex.set(node.id, args.prevLogIndex + args.entries.length);
+      return;
+    }
 
     // 以後appendEntriesに失敗した = ログが不整合に対処する
     const nextIndexValue = (nextIndex.get(node.id) ?? 1) - 1;
