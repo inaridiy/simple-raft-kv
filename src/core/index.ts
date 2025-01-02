@@ -11,8 +11,8 @@ import type {
   RaftKvStorage,
   RequestVoteArgs,
   RequestVoteReply,
-} from "./types.js";
-import { createLock } from "./utils.js";
+} from "../types.js";
+import { createLock } from "../utils.js";
 
 export interface RaftKvParams {
   nodeId: string;
