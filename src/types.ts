@@ -10,8 +10,9 @@ export type RaftKvOptions = v.InferOutput<typeof RaftKvOptionsSchema>;
 export type RaftKvStorage = {
   loadState: () => Promise<PersistentState>;
   saveState: (state: PersistentState) => Promise<void>;
-  // 不正なLogEntryを上書きながら追加する [startIndex, startIndex + entries.length)の範囲のLogEntryを追加する
-  appendLogEntries: (startIndex: number, entries: LogEntry[]) => Promise<void>;
+  // 不正なLogEntryを上書きながら追加する [from, startIndex + entries.length)の範囲のLogEntryを追加する
+  // 追加した最後のLogEntryのindexを返す
+  appendLogEntries: (from: number, entries: LogEntry[]) => Promise<number>;
   getLastLogEntry: () => Promise<PersistedLogEntry | null>;
   getLogEntryByIndex: (index: number) => Promise<PersistedLogEntry | null>;
   // [lastCommitIndex, endIndex)の範囲のLogEntryをKVストアに適用する
@@ -21,6 +22,11 @@ export type RaftKvStorage = {
 export type RaftKvRpc = {
   requestVote: (args: RequestVoteArgs) => Promise<RequestVoteReply>;
   appendEntries: (args: AppendEntriesArgs) => Promise<AppendEntriesReply>;
+};
+
+export type MemoryState = {
+  role: NodeRole;
+  commitIndex: number;
 };
 
 export type ElectionResult =
@@ -35,7 +41,6 @@ export type NodeRole = "follower" | "candidate" | "leader";
 export const PersistentStateSchema = v.object({
   term: v.number(),
   votedFor: v.union([v.string(), v.null()]),
-  //logsは 論理的にはlogs: LogEntry[] だが、実装上はStorageに分けているので省略
 });
 
 export type PersistentState = v.InferOutput<typeof PersistentStateSchema>;
@@ -43,7 +48,7 @@ export type PersistentState = v.InferOutput<typeof PersistentStateSchema>;
 export const KvCommandSchema = v.union([
   v.object({ op: v.literal("set"), key: v.string(), value: v.string() }),
   v.object({ op: v.literal("delete"), key: v.string() }),
-  v.object({ op: v.literal("get"), key: v.string() }),
+  v.object({ op: v.literal("noop") }),
 ]);
 
 export type KvCommand = v.InferOutput<typeof KvCommandSchema>;

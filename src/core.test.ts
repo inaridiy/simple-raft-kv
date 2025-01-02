@@ -7,6 +7,14 @@ import type {
   RequestVoteReply,
 } from "./types.js";
 
+const createMockTimers = () => ({
+  heartbeatInterval: vi.fn(),
+  electionTimeout: vi.fn().mockReturnValue(vi.fn()),
+  electionRetrySleep: vi.fn().mockResolvedValue(undefined),
+  electionDuration: vi.fn().mockResolvedValue(undefined),
+  appendEntriesTimeout: vi.fn().mockResolvedValue(undefined),
+});
+
 describe("Raft Election Tests", () => {
   // Mock storage
   const createMockStorage = (initialTerm = 0): RaftKvStorage => {
@@ -51,10 +59,7 @@ describe("Raft Election Tests", () => {
       nodeId: "node1",
       nodes,
       storage,
-      heartbeatInterval: vi.fn(),
-      electionTimeout: vi.fn().mockReturnValue(vi.fn()),
-      electionRetrySleep: vi.fn().mockResolvedValue(undefined),
-      electionDuration: vi.fn().mockResolvedValue(undefined),
+      timers: createMockTimers(),
     });
 
     // RequestVoteのハンドリングをテスト
@@ -80,10 +85,7 @@ describe("Raft Election Tests", () => {
       nodeId: "node1",
       nodes: [],
       storage,
-      heartbeatInterval: vi.fn(),
-      electionTimeout: vi.fn().mockReturnValue(vi.fn()),
-      electionRetrySleep: vi.fn().mockResolvedValue(undefined),
-      electionDuration: vi.fn().mockResolvedValue(undefined),
+      timers: createMockTimers(),
     });
 
     const reply = await raft.handleRequestVote({
@@ -106,10 +108,7 @@ describe("Raft Election Tests", () => {
       nodeId: "node1",
       nodes: [],
       storage,
-      heartbeatInterval: vi.fn(),
-      electionTimeout: vi.fn().mockReturnValue(vi.fn()),
-      electionRetrySleep: vi.fn().mockResolvedValue(undefined),
-      electionDuration: vi.fn().mockResolvedValue(undefined),
+      timers: createMockTimers(),
     });
 
     const reply = await raft.handleRequestVote({
@@ -136,10 +135,7 @@ describe("Raft Election Tests", () => {
       nodeId: "node1",
       nodes: [],
       storage,
-      heartbeatInterval: vi.fn(),
-      electionTimeout: vi.fn().mockReturnValue(vi.fn()),
-      electionRetrySleep: vi.fn().mockResolvedValue(undefined),
-      electionDuration: vi.fn().mockResolvedValue(undefined),
+      timers: createMockTimers(),
     });
 
     const reply = await raft.handleRequestVote({

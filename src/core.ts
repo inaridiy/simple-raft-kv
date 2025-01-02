@@ -2,42 +2,50 @@ import type {
   AppendEntriesArgs,
   AppendEntriesReply,
   ElectionResult,
+  KvCommand,
+  LogEntry,
+  MemoryState,
   NodeRole,
+  PersistentState,
   RaftKvRpc,
   RaftKvStorage,
   RequestVoteArgs,
   RequestVoteReply,
 } from "./types.js";
+import { createLock } from "./utils.js";
 
 export interface RaftKvParams {
   nodeId: string;
   nodes: { id: string; rpc: RaftKvRpc }[];
   storage: RaftKvStorage;
-  // (cb: ハートビートハンドラー) => void
-  heartbeatInterval: (cb: () => void) => void;
-  // (cb: タイムアウトハンドラー) => リセット関数
-  electionTimeout: (cb: () => void) => () => void;
-  // () => Promise<void>;
-  electionRetrySleep: () => Promise<void>;
-  // () => Promise<void>;
-  electionDuration: () => Promise<void>;
+  timers: {
+    // (cb: ハートビートハンドラー) => void
+    heartbeatInterval: (cb: () => void) => void;
+    // (cb: タイムアウトハンドラー) => リセット関数
+    electionTimeout: (cb: () => void) => () => void;
+    // ランダムな時間のSleep
+    electionRetrySleep: () => Promise<void>;
+    //固定値のSleep
+    electionDuration: () => Promise<void>;
+    appendEntriesTimeout: () => Promise<void>;
+  };
 }
 
 export const initializeRaftKv = async (params: RaftKvParams) => {
-  const { nodeId, nodes, storage, heartbeatInterval } = params;
-  const { electionRetrySleep, electionTimeout, electionDuration } = params;
+  const { nodeId, nodes, storage, timers } = params;
 
   let role = "follower" as NodeRole;
+  let commitIndex = 0;
   let nextIndex = new Map<string, number>();
   let matchIndex = new Map<string, number>();
 
-  const becomeFollower = async (term: number) => {
+  const _becomeFollower = async (term: number) => {
     role = "follower";
     const newState = { term, votedFor: null };
     await storage.saveState(newState);
   };
 
-  const becomeLeader = async () => {
+  const _becomeLeader = async () => {
     role = "leader";
 
     //1. リーダー用の変数を初期化
@@ -52,7 +60,9 @@ export const initializeRaftKv = async (params: RaftKvParams) => {
     }
   };
 
-  const startElection = async () => {
+  const _startElection = async () => {
+    if (role === "leader") return;
+
     // 1. 自分のtermを1増やして候補者になる
     const state = await storage.loadState();
     role = "candidate";
@@ -85,102 +95,150 @@ export const initializeRaftKv = async (params: RaftKvParams) => {
     });
     const voteResult = await Promise.race([
       voteResultWaiting,
-      electionDuration().then((): ElectionResult => ({ type: "timeout" })),
+      timers.electionDuration().then(() => ({ type: "timeout" as const })),
     ]);
 
-    // 別のノードからAppendEntriesが来ていた場合、選挙を中断する
+    // 別のノードからAppendEntriesが来てrole=followerとなった場合、選挙を中止する
     if (role !== "candidate") return;
 
     if (voteResult.type === "win") {
-      await becomeLeader();
+      await _becomeLeader();
     } else if (voteResult.type === "lose") {
-      await becomeFollower(voteResult.term);
-      resetElectionTimeout();
+      await _becomeFollower(voteResult.term);
+      _resetElectionTimeout();
     } else {
       // 4. タイムアウトした場合は再選挙
-      await electionRetrySleep();
-      startElection();
+      await timers.electionRetrySleep();
+      _startElection();
     }
   };
 
-  const sendHeartbeat = async () => {
+  const _sendHeartbeat = async () => {
     if (role !== "leader") return;
     const state = await storage.loadState();
     const lastLogEntry = await storage.getLastLogEntry();
 
-    const appendEntriesArgs = {
+    const heartbeatArgs = {
       term: state.term,
       leaderId: nodeId,
       prevLogIndex: lastLogEntry?.index ?? 0,
       prevLogTerm: lastLogEntry?.term ?? 0,
-      entries: [], //ハートビートなので空
-      leaderCommit: 0, //ハートビートなので0
+      entries: [],
+      leaderCommit: commitIndex,
     };
+
+    for (const node of nodes) _sendAppendEntries(node, heartbeatArgs);
   };
 
-  // あ～アトミックにしてぇ、トランザクション張りてぇ (´；ω；｀)
+  const _sendAppendEntriesLock = createLock();
+  const _sendAppendEntries = async (
+    node: { id: string; rpc: RaftKvRpc },
+    args: AppendEntriesArgs,
+  ) => {
+    // node単位で排他制御を行う
+    const unlock = await _sendAppendEntriesLock(node.id);
+    try {
+      const result = await node.rpc.appendEntries(args);
+
+      // 既にリーダーでない場合は即時フォロワー降格
+      if (result.term > args.term) {
+        await _becomeFollower(result.term);
+        _resetElectionTimeout();
+        return;
+      }
+
+      if (result.success) {
+        nextIndex.set(node.id, args.prevLogIndex + args.entries.length + 1);
+        matchIndex.set(node.id, args.prevLogIndex + args.entries.length);
+        return;
+      }
+    } finally {
+      unlock();
+    }
+  };
+
+  const handleRequestLock = createLock();
   const handleAppendEntries = async (
     args: AppendEntriesArgs,
   ): Promise<AppendEntriesReply> => {
-    const state = await storage.loadState();
-    // 1. リーダーのtermが自分のtermより小さい場合は拒否
-    if (args.term < state.term) return { term: state.term, success: false };
+    const unlock = await handleRequestLock();
+    try {
+      const state = await storage.loadState();
+      // 1. リーダーのtermが自分のtermより小さい場合は拒否
+      if (args.term < state.term) return { term: state.term, success: false };
 
-    // 2. リーダーのtermが自分のtermより大きい場合はフォロワーになる
-    if (args.term > state.term) await becomeFollower(args.term);
-    resetElectionTimeout();
+      // 2. リーダーのtermが自分のtermより大きい場合はフォロワーになる
+      if (args.term > state.term) await _becomeFollower(args.term);
+      _resetElectionTimeout();
 
-    // 3. prevLogIndexの位置にprevLogTermと一致するエントリがログにない場合、falseを返す (§5.3)
-    const prevLogEntry = await storage.getLogEntryByIndex(args.prevLogIndex);
-    if (!prevLogEntry || prevLogEntry.term !== args.prevLogTerm)
-      return { term: args.term, success: false };
+      // 3. prevLogIndexの位置にprevLogTermと一致するエントリがログにない場合、falseを返す (§5.3)
+      const prevLogEntry = await storage.getLogEntryByIndex(args.prevLogIndex);
+      if (!prevLogEntry || prevLogEntry.term !== args.prevLogTerm)
+        return { term: args.term, success: false };
 
-    await storage.appendLogEntries(args.prevLogIndex + 1, args.entries);
+      await storage.appendLogEntries(args.prevLogIndex + 1, args.entries);
 
-    // 4. leaderCommitまでState Machineに適用する。lastAppliedはKV内で保持される
-    const commitIndex = Math.min(
-      args.leaderCommit,
-      args.prevLogIndex + args.entries.length,
-    );
-    // 適用は非同期で行う
-    void storage.commitLogEntries(commitIndex);
+      // 4. leaderCommitまでState Machineに適用する。lastAppliedはKV内で保持される
+      commitIndex = Math.min(
+        args.leaderCommit,
+        args.prevLogIndex + args.entries.length,
+      );
+      // 適用は非同期で行う
+      void storage.commitLogEntries(commitIndex);
 
-    return { term: args.term, success: true };
+      return { term: args.term, success: true };
+    } finally {
+      unlock();
+    }
   };
 
-  // あ～アトミックにしてぇ、トランザクション張りてぇ (´；ω；｀)
   const handleRequestVote = async (
     args: RequestVoteArgs,
   ): Promise<RequestVoteReply> => {
-    const state = await storage.loadState();
-    // 1. 自分のtermがリクエストのtermより大きい場合は拒否
-    if (args.term < state.term) return { term: state.term, voteGranted: false };
+    const unlock = await handleRequestLock();
+    try {
+      const state = await storage.loadState();
+      // 1. 自分のtermがリクエストのtermより大きい場合は拒否
+      if (args.term < state.term)
+        return { term: state.term, voteGranted: false };
 
-    // 2. 既に投票済みの場合は拒否
-    if (state.votedFor && state.votedFor !== args.candidateId)
-      return { term: args.term, voteGranted: false };
+      // 2. 既に投票済みの場合は拒否
+      if (state.votedFor && state.votedFor !== args.candidateId)
+        return { term: args.term, voteGranted: false };
 
-    // 3. リクエストのログが自分のログより新しい場合は投票
-    const lastLogEntry = await storage.getLastLogEntry();
-    const isCandidateLogNewer =
-      !lastLogEntry ||
-      lastLogEntry.term < args.lastLogTerm || // termが進んでいる場合
-      (lastLogEntry.term === args.lastLogTerm && // termが同じでindexが進んでいる場合
-        lastLogEntry.index <= args.lastLogIndex);
+      // 3. リクエストのログが自分のログより新しい場合は投票
+      const lastLogEntry = await storage.getLastLogEntry();
+      const isCandidateLogNewer =
+        !lastLogEntry ||
+        lastLogEntry.term < args.lastLogTerm || // termが進んでいる場合
+        (lastLogEntry.term === args.lastLogTerm && // termが同じでindexが進んでいる場合
+          lastLogEntry.index <= args.lastLogIndex);
 
-    if (!isCandidateLogNewer) return { term: args.term, voteGranted: false };
+      if (!isCandidateLogNewer) return { term: args.term, voteGranted: false };
 
-    await storage.saveState({ term: args.term, votedFor: args.candidateId });
-    resetElectionTimeout();
+      await storage.saveState({ term: args.term, votedFor: args.candidateId });
+      _resetElectionTimeout();
 
-    return { term: args.term, voteGranted: true };
+      return { term: args.term, voteGranted: true };
+    } finally {
+      unlock();
+    }
   };
 
-  const resetElectionTimeout = electionTimeout(startElection);
+  const handleClientRequest = async (commands: KvCommand[]) => {
+    if (role !== "leader") throw new Error("not a leader");
+  };
 
-  heartbeatInterval(sendHeartbeat);
+  const getNodeState = async (): Promise<MemoryState & PersistentState> => {
+    const persisted = await storage.loadState();
+    return { role, commitIndex, ...persisted };
+  };
+
+  const _resetElectionTimeout = timers.electionTimeout(_startElection);
+  timers.heartbeatInterval(_sendHeartbeat);
 
   return {
+    getNodeState,
     handleAppendEntries,
     handleRequestVote,
   };
