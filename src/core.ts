@@ -286,11 +286,17 @@ export const initializeRaftKv = (params: RaftKvParams) => {
       if (args.term < state.term)
         return { term: state.term, voteGranted: false };
 
-      // 2. 既に投票済みの場合は拒否
+      // 2. リクエストのtermが自分のtermより大きい場合はフォロワーになる
+      if (args.term > state.term) {
+        await _becomeFollower(args.term);
+        _resetElectionTimeout();
+      }
+
+      // 3. 既に投票済みの場合は拒否
       if (state.votedFor && state.votedFor !== args.candidateId)
         return { term: args.term, voteGranted: false };
 
-      // 3. リクエストのログが自分のログより新しい場合は投票
+      // 4. リクエストのログが自分のログより新しい場合は投票
       const lastLogEntry = await storage.getLastLogEntry();
       const isCandidateLogNewer =
         !lastLogEntry ||
