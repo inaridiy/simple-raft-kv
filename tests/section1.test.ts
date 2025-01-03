@@ -4,7 +4,7 @@ import { createMockTimers } from "./utils.js";
 
 describe("1. ノードの初期状態に関するテスト", () => {
   it("1-1: フォロワーとして初期化されるべき", async () => {
-    const node = await initializeRaftKv({
+    const node = initializeRaftKv({
       nodeId: "node1",
       nodes: [],
       storage: createMemoryStorage(),
@@ -33,7 +33,7 @@ describe("1. ノードの初期状態に関するテスト", () => {
       kvStore: new Map([["key1", "value1"]]),
     });
 
-    const node = await initializeRaftKv({
+    const node = initializeRaftKv({
       nodeId: "node1",
       nodes: [],
       storage,

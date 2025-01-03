@@ -31,7 +31,7 @@ export interface RaftKvParams {
   };
 }
 
-export const initializeRaftKv = async (params: RaftKvParams) => {
+export const initializeRaftKv = (params: RaftKvParams) => {
   const { nodeId, nodes, storage, timers } = params;
 
   let role = "follower" as NodeRole;
@@ -55,7 +55,7 @@ export const initializeRaftKv = async (params: RaftKvParams) => {
     const lastLogEntry = await storage.getLastLogEntry();
     for (const node of nodes) {
       // 2. リーダーのログの次のエントリーを追加する
-      nextIndex.set(node.id, (lastLogEntry?.index ?? -1) + 1);
+      nextIndex.set(node.id, (lastLogEntry?.index ?? 0) + 1);
       matchIndex.set(node.id, 0);
     }
 
@@ -83,6 +83,8 @@ export const initializeRaftKv = async (params: RaftKvParams) => {
     };
 
     const voteResultWaiting = new Promise<ElectionResult>((resolve) => {
+      if (nodes.length === 0) resolve({ type: "win" });
+
       let votesReceived = 1;
       const promises = nodes.map((node) =>
         node.rpc.requestVote(requestVoteArgs).then((result) => {
@@ -93,6 +95,7 @@ export const initializeRaftKv = async (params: RaftKvParams) => {
           if (votesReceived >= votesNeeded) resolve({ type: "win" });
         }),
       );
+
       Promise.all(promises).then(() => resolve({ type: "timeout" }));
     });
     const voteResult = await Promise.race([
@@ -159,7 +162,8 @@ export const initializeRaftKv = async (params: RaftKvParams) => {
     }
 
     // 以後appendEntriesに失敗した = ログが不整合に対処する
-    const nextIndexValue = (nextIndex.get(node.id) ?? 1) - 1;
+    const nextIndexValue = (nextIndex.get(node.id) ?? 0) - 1;
+    console.log("nextIndexValue", nextIndexValue);
     if (nextIndexValue < 1) throw new Error("WTF: nextIndexValue < 1");
     nextIndex.set(node.id, nextIndexValue);
 
@@ -215,6 +219,8 @@ export const initializeRaftKv = async (params: RaftKvParams) => {
     };
 
     const isAppendSuccess = await new Promise<boolean>((resolve) => {
+      if (nodes.length === 0) resolve(true);
+
       let successCount = 1;
       const promises = nodes.map((node) =>
         _sendAppendEntries(node, appendEntriesArgs).then(() => {
@@ -248,7 +254,10 @@ export const initializeRaftKv = async (params: RaftKvParams) => {
 
       // 3. prevLogIndexの位置にprevLogTermと一致するエントリがログにない場合、falseを返す (§5.3)
       const prevLogEntry = await storage.getLogEntryByIndex(args.prevLogIndex);
-      if (!prevLogEntry || prevLogEntry.term !== args.prevLogTerm)
+      if (
+        args.prevLogIndex > 0 && // 0の場合は初めのエントリーなので無視
+        (!prevLogEntry || prevLogEntry.term !== args.prevLogTerm)
+      )
         return { term: args.term, success: false };
 
       await storage.appendLogEntries(args.prevLogIndex + 1, args.entries);
@@ -325,3 +334,5 @@ export const initializeRaftKv = async (params: RaftKvParams) => {
     handleClientRequest,
   };
 };
+
+export type RaftKvNode = Awaited<ReturnType<typeof initializeRaftKv>>;
