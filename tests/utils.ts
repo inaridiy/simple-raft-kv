@@ -2,6 +2,17 @@ import { type RaftKvNode, initializeRaftKv } from "../src/core.js";
 import { createMemoryStorage } from "../src/storage.js";
 import type { RaftKvRpc } from "../src/types.js";
 
+const rpcDelay = [5, 20] as const;
+const electionRetrySleep = [150, 150] as const;
+const electionDuration = [150, 300] as const;
+
+const delay = (range: Readonly<[number, number]>) => {
+  const [min, max] = range;
+  return new Promise((resolve) =>
+    setTimeout(resolve, Math.random() * (max - min) + min),
+  );
+};
+
 export const createMockTimers = () => {
   let heartbeatCallback: (() => void) | null = null;
   let electionCallback: (() => void) | null = null;
@@ -19,12 +30,10 @@ export const createMockTimers = () => {
       return electionTimeoutReset;
     },
     electionRetrySleep: async () => {
-      // Immediate return for testing
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await delay(electionRetrySleep);
     },
     electionDuration: async () => {
-      // Immediate return for testing
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await delay(electionDuration);
     },
     appendEntriesTimeout: async () => {
       // Immediate return for testing
@@ -53,12 +62,12 @@ export const createDirectRpc = () => {
   const rpc: RaftKvRpc = {
     requestVote: async (args) => {
       if (!node) throw new Error("Node is not set");
-      await new Promise((resolve) => setTimeout(resolve, Math.random() * 100));
+      await delay(rpcDelay);
       return node.handleRequestVote(args);
     },
     appendEntries: async (args) => {
       if (!node) throw new Error("Node is not set");
-      await new Promise((resolve) => setTimeout(resolve, Math.random() * 100));
+      await delay(rpcDelay);
       return node.handleAppendEntries(args);
     },
   };
