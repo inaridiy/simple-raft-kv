@@ -1,0 +1,6 @@
+{
+  "electionTimeout": [10000, 15000],
+  "heartbeatInterval": 1000,
+  "appendEntiresTimeout": 3000,
+  "nodes": [{ "id": "node1", "url": "http://localhost:4001" }]
+}

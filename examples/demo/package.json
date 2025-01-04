@@ -1,0 +1,17 @@
+{
+  "name": "@simple-raft-kv/demo",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "index.ts",
+  "dependencies": {
+    "@simple-raft-kv/core": "workspace:*",
+    "@hono/node-server": "^1.13.7",
+    "@hono/valibot-validator": "^0.5.1",
+    "hono": "^4.6.15",
+    "valibot": "1.0.0-beta.9"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.17",
+    "tsx": "^4.7.1"
+  }
+}

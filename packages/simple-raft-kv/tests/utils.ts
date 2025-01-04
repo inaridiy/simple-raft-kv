@@ -1,4 +1,5 @@
-import { type RaftKvNode, initializeRaftKv } from "../src/core.js";
+import { initializeRaftKv } from "../src/core.js";
+import { createDirectRpc as createDirectRpcWithRandomDelay } from "../src/presets.js";
 import { createMemoryStorage } from "../src/storage.js";
 import type {
   AppendEntriesArgs,
@@ -59,28 +60,7 @@ export const createMockTimers = () => {
   };
 };
 
-export const createDirectRpc = () => {
-  let node: RaftKvNode | null = null;
-
-  const setNode = (n: RaftKvNode) => {
-    node = n;
-  };
-
-  const rpc: RaftKvRpc = {
-    requestVote: async (args) => {
-      if (!node) throw new Error("Node is not set");
-      await delay(rpcDelay);
-      return node.handleRequestVote(args);
-    },
-    appendEntries: async (args) => {
-      if (!node) throw new Error("Node is not set");
-      await delay(rpcDelay);
-      return node.handleAppendEntries(args);
-    },
-  };
-
-  return { rpc, setNode };
-};
+export const createDirectRpc = () => createDirectRpcWithRandomDelay(rpcDelay);
 
 export const createNNodes = (ids: string[]) => {
   const rpcs = ids.map((id) => ({ id, directRpc: createDirectRpc() }));
