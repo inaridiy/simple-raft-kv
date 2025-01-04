@@ -4,7 +4,7 @@ import { createLock } from "./utils.js";
 describe("create", () => {
   it("should lock and unlock correctly", async () => {
     const lock = createLock();
-    const unlock = await lock("test");
+    const { unlock } = await lock("test");
     let isLocked = true;
 
     // ロックが取得されていることを確認
@@ -20,7 +20,7 @@ describe("create", () => {
 
   it("should handle multiple locks correctly", async () => {
     const lock = createLock();
-    const unlock1 = await lock("test");
+    const { unlock: unlock1 } = await lock("test");
     let isLocked1 = true;
 
     // 最初のロックが取得されていることを確認
@@ -34,7 +34,7 @@ describe("create", () => {
     isLocked1 = false;
 
     // 最初のロックが解放された後、2つ目のロックが取得されることを確認
-    const unlock2 = await unlock2Promise;
+    const { unlock: unlock2 } = await unlock2Promise;
     isLocked2 = true;
 
     expect(isLocked1).toBe(false);

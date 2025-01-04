@@ -42,16 +42,26 @@ const httpRpc = (url: string): RaftKvRpc => {
   const client = hc<typeof app>(url);
   return {
     async requestVote(args) {
-      const response = await client.raft["request-vote"].$post({ json: args });
-      const reply = await response.json();
-      return reply;
+      try {
+        const response = await client.raft["request-vote"].$post({
+          json: args,
+        });
+        const reply = await response.json();
+        return reply;
+      } catch (e) {
+        return null;
+      }
     },
     async appendEntries(args) {
-      const response = await client.raft["append-entries"].$post({
-        json: args,
-      });
-      const reply = await response.json();
-      return reply;
+      try {
+        const response = await client.raft["append-entries"].$post({
+          json: args,
+        });
+        const reply = await response.json();
+        return reply;
+      } catch (e) {
+        return null;
+      }
     },
   };
 };
@@ -127,6 +137,6 @@ const app = new Hono()
     },
   );
 
-console.log(`Server is running on http://localhost:${port}`);
-
-serve({ fetch: app.fetch, port: Number.parseInt(port) });
+serve({ fetch: app.fetch, port: Number.parseInt(port) }, (info) => {
+  console.log(`Server is running on http://localhost:${port}`, info);
+});

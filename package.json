@@ -3,7 +3,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "test": "vitest"
+    "test": "vitest --silent"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

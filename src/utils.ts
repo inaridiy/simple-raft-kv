@@ -23,7 +23,9 @@ export function createLock() {
     }
   }
 
-  async function lock(id = "##default##"): Promise<() => void> {
+  async function lock(
+    id = "##default##",
+  ): Promise<{ unlock: () => void; queueLength: number }> {
     if (!(id in lockedById)) lockedById[id] = false;
     if (!(id in waitersById)) waitersById[id] = [];
 
@@ -31,12 +33,15 @@ export function createLock() {
       if (!lockedById[id]) {
         // ロックが空いていればすぐにロック取得
         lockedById[id] = true;
-        resolve(() => unlock(id));
+        resolve({ unlock: () => unlock(id), queueLength: 0 });
       } else {
         // すでにロック中であれば待ち行列にプッシュ
         waitersById[id].push(() => {
           lockedById[id] = true;
-          resolve(() => unlock(id));
+          resolve({
+            unlock: () => unlock(id),
+            queueLength: waitersById[id].length,
+          });
         });
       }
     });
@@ -55,6 +60,8 @@ export const createTimers = (
     electionTimeout: (cb) => {
       let tm: NodeJS.Timeout;
       const start = () => {
+        if (tm) clearTimeout(tm);
+
         const [min, max] = electionTimeout;
         const timeout = Math.random() * (max - min) + min;
         tm = setTimeout(() => {

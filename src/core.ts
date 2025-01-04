@@ -45,6 +45,7 @@ export const initializeRaftKv = (params: RaftKvParams) => {
     role = "follower";
     const newState = { term, votedFor: null };
     await storage.saveState(newState);
+    _resetElectionTimeout();
   };
 
   const _becomeLeader = async () => {
@@ -96,6 +97,8 @@ export const initializeRaftKv = (params: RaftKvParams) => {
             `[${nodeId}] Received vote result from ${node.id}`,
             result,
           );
+          if (result === null) return;
+
           // 2. 他の候補者のtermが自分のtermより大きい場合は、即時にフォロワーになる
           if (result.term > term) resolve({ type: "lose", term: result.term });
           if (result.voteGranted) votesReceived++;
@@ -119,10 +122,10 @@ export const initializeRaftKv = (params: RaftKvParams) => {
       await _becomeLeader();
     } else if (voteResult.type === "lose") {
       await _becomeFollower(voteResult.term);
-      _resetElectionTimeout();
     } else {
       // 4. タイムアウトした場合は再選挙
       await timers.electionRetrySleep();
+      _resetElectionTimeout();
       if (role === "candidate") await _startElection();
     }
   };
@@ -150,6 +153,8 @@ export const initializeRaftKv = (params: RaftKvParams) => {
     node: { id: string; rpc: RaftKvRpc },
     args: AppendEntriesArgs,
   ) => {
+    if (role !== "leader") return;
+
     console.log(`[${nodeId}] Sending appendEntries to ${node.id}`, args);
     const result = await Promise.race([
       node.rpc.appendEntries(args),
@@ -160,12 +165,15 @@ export const initializeRaftKv = (params: RaftKvParams) => {
       result,
     );
     // タイムアウトした場合はリトライ
-    if (!result) return await _sendAppendEntries(node, args);
+    if (!result) {
+      await timers.appendEntriesTimeout();
+      return await _sendAppendEntries(node, args);
+    }
 
     // 既にリーダーでない場合は即時フォロワー降格
     if (result.term > args.term) {
       await _becomeFollower(result.term);
-      _resetElectionTimeout();
+
       return;
     }
 
@@ -205,8 +213,11 @@ export const initializeRaftKv = (params: RaftKvParams) => {
     node: { id: string; rpc: RaftKvRpc },
     args: AppendEntriesArgs,
   ) => {
-    const unlock = await _sendAppendEntriesLock();
+    // nodeごとに排他制御を行う
+    const { unlock, queueLength } = await _sendAppendEntriesLock(node.id);
     try {
+      // スタックしたハートビートをスキップ
+      if (args.entries.length === 0 && queueLength > 0) return;
       await _sendAppendEntries(node, args);
     } finally {
       unlock();
@@ -261,9 +272,11 @@ export const initializeRaftKv = (params: RaftKvParams) => {
   const handleAppendEntries = async (
     args: AppendEntriesArgs,
   ): Promise<AppendEntriesReply> => {
-    const unlock = await handleRequestLock();
+    const { unlock } = await handleRequestLock();
     try {
       const state = await storage.loadState();
+      console.log(`[${nodeId}] handleAppendEntries`, args);
+
       // 1. リーダーのtermが自分のtermより小さい場合は拒否
       if (args.term < state.term) return { term: state.term, success: false };
 
@@ -298,7 +311,7 @@ export const initializeRaftKv = (params: RaftKvParams) => {
   const handleRequestVote = async (
     args: RequestVoteArgs,
   ): Promise<RequestVoteReply> => {
-    const unlock = await handleRequestLock();
+    const { unlock } = await handleRequestLock();
     try {
       let state = await storage.loadState();
       console.log(`[${nodeId}] handleRequestVote`, args);

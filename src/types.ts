@@ -14,8 +14,10 @@ export type RaftKvStorage = {
 };
 
 export type RaftKvRpc = {
-  requestVote: (args: RequestVoteArgs) => Promise<RequestVoteReply>;
-  appendEntries: (args: AppendEntriesArgs) => Promise<AppendEntriesReply>;
+  requestVote: (args: RequestVoteArgs) => Promise<RequestVoteReply | null>;
+  appendEntries: (
+    args: AppendEntriesArgs,
+  ) => Promise<AppendEntriesReply | null>;
 };
 
 export type MemoryState = {

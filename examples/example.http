@@ -1,0 +1,20 @@
+@leader = "http://127.0.0.1:4001"
+
+---
+
+POST {{leader}}/mutate
+Content-Type: application/json
+
+{
+  "op": "set",
+  "key": "foo",
+  "value": "bar"
+}
+
+---
+POST {{leader}}/query
+Content-Type: application/json
+
+{
+  "keys": ["foo"]
+}

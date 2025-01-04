@@ -16,7 +16,7 @@ describe("4. ログの追随(レプリケーション)に関するテスト", ()
       { op: "set", key: "key1", value: "value1" },
       { op: "set", key: "key2", value: "value2" },
     ]);
-    await setTimeout(10); //コミットまではされない時間
+    await setTimeout(1); //コミットまではされない時間
     const state1 = await node1.node.getNodeState();
     expect(node1.storage.internal.logEntries).toHaveLength(3);
     expect(state1.commitIndex).toBe(1);
@@ -27,11 +27,17 @@ describe("4. ログの追随(レプリケーション)に関するテスト", ()
     expect(node1.storage.internal.kvStore.get("key1")).toBe("value1");
     expect(node1.storage.internal.kvStore.get("key2")).toBe("value2");
 
-    // まだフォロワーにログは伝播したが、コミットされていない
-    expect(node2.storage.internal.logEntries).toHaveLength(3);
-    expect(node2.storage.internal.kvStore.get("key1")).toBe(undefined);
-    expect(node3.storage.internal.logEntries).toHaveLength(3);
-    expect(node3.storage.internal.kvStore.get("key1")).toBe(undefined);
+    // 過半数のフォロワーにログは伝播したが、まだコミットされていない
+    expect(
+      [node2, node3, node4, node5]
+        .map((node) => node.storage.internal.logEntries)
+        .filter((entries) => entries.length === 3).length,
+    ).gte(2);
+    expect(
+      [node2, node3, node4, node5]
+        .map((node) => node.storage.internal.kvStore.get("key1"))
+        .filter((value) => value === undefined),
+    ).toHaveLength(4);
 
     node1.timers.triggerHeartbeat();
     await setTimeout(100); //十分な時間待機
