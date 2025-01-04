@@ -2,9 +2,6 @@ import fs from "node:fs/promises";
 import * as nodeUtils from "node:util";
 import { serve } from "@hono/node-server";
 import { vValidator } from "@hono/valibot-validator";
-import { Hono } from "hono";
-import { hc } from "hono/client";
-import * as v from "valibot";
 import {
   AppendEntriesArgsSchema,
   KvCommandSchema,
@@ -13,7 +10,10 @@ import {
   createMemoryStorage,
   createTimers,
   initializeRaftKv,
-} from "../../src/index.js";
+} from "@simple-raft-kv/core";
+import { Hono } from "hono";
+import { hc } from "hono/client";
+import * as v from "valibot";
 
 const configSchema = v.object({
   electionTimeout: v.tuple([v.number(), v.number()]),

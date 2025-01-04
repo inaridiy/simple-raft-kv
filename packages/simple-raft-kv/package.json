@@ -1,8 +1,11 @@
 {
-  "name": "my-app",
+  "name": "@simple-raft-kv/core",
+  "version": "0.0.1",
   "type": "module",
+  "main": "src/index.ts",
   "scripts": {
-    "test": "pnpm -C packages/simple-raft-kv test"
+    "test": "vitest --silent",
+    "test:watch": "vitest --silent --watch"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
@@ -11,7 +14,6 @@
     "valibot": "1.0.0-beta.9"
   },
   "devDependencies": {
-    "@biomejs/biome": "1.9.4",
     "@types/node": "^20.11.17",
     "tsx": "^4.7.1",
     "vitest": "^2.1.8"
