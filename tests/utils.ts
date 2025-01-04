@@ -11,6 +11,7 @@ import type {
 const rpcDelay = [5, 20] as const;
 const electionRetrySleep = [150, 150] as const;
 const electionDuration = [150, 300] as const;
+const appendEntriesTimeout = [50, 50] as const;
 
 const delay = (range: Readonly<[number, number]>) => {
   const [min, max] = range;
@@ -43,7 +44,7 @@ export const createMockTimers = () => {
     },
     appendEntriesTimeout: async () => {
       // Immediate return for testing
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await delay(appendEntriesTimeout);
     },
     // Test helpers
     triggerHeartbeat: () => {
@@ -81,7 +82,7 @@ export const createDirectRpc = () => {
   return { rpc, setNode };
 };
 
-export const createThreeNodes = (ids: [string, string, string]) => {
+export const createNNodes = (ids: string[]) => {
   const rpcs = ids.map((id) => ({ id, directRpc: createDirectRpc() }));
   const nodes = ids.map((id) => {
     const peers = rpcs

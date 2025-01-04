@@ -2,7 +2,7 @@ import { setTimeout } from "node:timers/promises";
 import { set } from "valibot";
 import { describe, expect, it } from "vitest";
 import { createMemoryStorage, initializeRaftKv } from "../src/index.js";
-import { createMockTimers, createThreeNodes } from "./utils.js";
+import { createMockTimers, createNNodes } from "./utils.js";
 
 describe("2. 選挙に関するテスト", () => {
   it("2-1: 単一ノードの場合、自動でリーダに昇格", async () => {
@@ -24,7 +24,7 @@ describe("2. 選挙に関するテスト", () => {
   });
 
   it("2-2: タイムアウトによりフォロワーが候補者に昇格", async () => {
-    const [node1] = createThreeNodes(["node1", "node2", "node3"]);
+    const [node1] = createNNodes(["node1", "node2", "node3"]);
 
     node1.timers.triggerElectionTimeout();
     await setTimeout(0);
@@ -36,7 +36,7 @@ describe("2. 選挙に関するテスト", () => {
   });
 
   it("2-3: 過半数の投票を得た候補者がリーダに昇格", async () => {
-    const [node1] = createThreeNodes(["node1", "node2", "node3"]);
+    const [node1] = createNNodes(["node1", "node2", "node3"]);
 
     node1.timers.triggerElectionTimeout();
     await setTimeout(50); //十分な時間待機
@@ -48,7 +48,7 @@ describe("2. 選挙に関するテスト", () => {
   });
 
   it("2-4: ほかのノードがより高い term で選挙した場合、フォロワーに降格", async () => {
-    const [node1, node2] = createThreeNodes(["node1", "node2", "node3"]);
+    const [node1, node2] = createNNodes(["node1", "node2", "node3"]);
 
     node1.timers.triggerElectionTimeout();
     await setTimeout(0);
@@ -66,7 +66,7 @@ describe("2. 選挙に関するテスト", () => {
   });
 
   it("2-5: 同時に複数の候補者が出た場合、片方がリーダーに収束する", async () => {
-    const [node1, node2, node3] = createThreeNodes(["node1", "node2", "node3"]);
+    const [node1, node2, node3] = createNNodes(["node1", "node2", "node3"]);
 
     node1.timers.triggerElectionTimeout();
     await setTimeout(50); //十分な時間待機
@@ -96,7 +96,7 @@ describe("2. 選挙に関するテスト", () => {
   });
 
   it("2-6-1: 投票拒否の条件1(ログが古い)", async () => {
-    const [node1, node2, node3] = createThreeNodes(["node1", "node2", "node3"]);
+    const [node1, node2, node3] = createNNodes(["node1", "node2", "node3"]);
 
     node1.timers.triggerElectionTimeout();
     await setTimeout(50); //十分な時間待機

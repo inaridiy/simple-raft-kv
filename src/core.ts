@@ -91,6 +91,10 @@ export const initializeRaftKv = (params: RaftKvParams) => {
       let votesReceived = 1;
       const promises = nodes.map((node) =>
         node.rpc.requestVote(requestVoteArgs).then((result) => {
+          console.log(
+            `[${nodeId}] Received vote result from ${node.id}`,
+            result,
+          );
           // 2. 他の候補者のtermが自分のtermより大きい場合は、即時にフォロワーになる
           if (result.term > term) resolve({ type: "lose", term: result.term });
           if (result.voteGranted) votesReceived++;
@@ -145,10 +149,15 @@ export const initializeRaftKv = (params: RaftKvParams) => {
     node: { id: string; rpc: RaftKvRpc },
     args: AppendEntriesArgs,
   ) => {
+    console.log(`[${nodeId}] Sending appendEntries to ${node.id}`, args);
     const result = await Promise.race([
       node.rpc.appendEntries(args),
       timers.appendEntriesTimeout().then(() => null),
     ]);
+    console.log(
+      `[${nodeId}] Received appendEntries result from ${node.id}`,
+      result,
+    );
     // タイムアウトした場合はリトライ
     if (!result) return await _sendAppendEntries(node, args);
 
@@ -210,7 +219,11 @@ export const initializeRaftKv = (params: RaftKvParams) => {
       term: state.term,
       command,
     }));
-    await storage.appendLogEntries(lastLogEntry?.index ?? 0, newLogEntries);
+
+    await storage.appendLogEntries(
+      (lastLogEntry?.index ?? 0) + 1,
+      newLogEntries,
+    );
 
     const applyNeeded = Math.floor(nodes.length / 2) + 1;
 
@@ -228,7 +241,7 @@ export const initializeRaftKv = (params: RaftKvParams) => {
 
       let successCount = 1;
       const promises = nodes.map((node) =>
-        _sendAppendEntries(node, appendEntriesArgs).then(() => {
+        _sendAppendEntriesExclusive(node, appendEntriesArgs).then(() => {
           successCount++;
           if (successCount >= applyNeeded) resolve(true);
         }),
@@ -286,7 +299,7 @@ export const initializeRaftKv = (params: RaftKvParams) => {
   ): Promise<RequestVoteReply> => {
     const unlock = await handleRequestLock();
     try {
-      const state = await storage.loadState();
+      let state = await storage.loadState();
       console.log(`[${nodeId}] handleRequestVote`, args);
 
       // 1. 自分のtermがリクエストのtermより大きい場合は拒否
@@ -297,6 +310,8 @@ export const initializeRaftKv = (params: RaftKvParams) => {
       if (args.term > state.term) {
         await _becomeFollower(args.term);
         _resetElectionTimeout();
+        // Stateを更新
+        state = await storage.loadState();
       }
 
       // 3. 既に投票済みの場合は拒否
@@ -338,11 +353,17 @@ export const initializeRaftKv = (params: RaftKvParams) => {
     return { role, commitIndex, ...persisted };
   };
 
+  const getLeaderState = async () => {
+    if (role !== "leader") return null;
+    return { commitIndex, nextIndex, matchIndex };
+  };
+
   const _resetElectionTimeout = timers.electionTimeout(_startElection);
   timers.heartbeatInterval(_sendHeartbeat);
 
   return {
     getNodeState,
+    getLeaderState,
     handleAppendEntries,
     handleRequestVote,
     handleClientRequest,

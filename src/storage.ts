@@ -1,3 +1,4 @@
+import { log } from "node:console";
 import type {
   KvCommand,
   LogEntry,
@@ -52,7 +53,7 @@ export const createMemoryStorage = (injectState?: MemoryStorageState) => {
         ...state.logEntries.slice(0, from - 1),
         ...entries.map((entry, idx) => ({
           ...entry,
-          index: from + idx + 1,
+          index: from + idx,
         })),
       ];
 
@@ -79,6 +80,7 @@ export const createMemoryStorage = (injectState?: MemoryStorageState) => {
       }
       state.lastApplied = endIndex;
     },
+    internal: state,
     async clearLogEntries() {
       state.logEntries = [];
       state.lastApplied = 0;
