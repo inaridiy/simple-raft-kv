@@ -8,11 +8,12 @@ import {
   type RaftKvRpc,
   RequestVoteArgsSchema,
   createMemoryStorage,
-  createTimers,
+  createSimplestTimers,
   initializeRaftKv,
 } from "@simple-raft-kv/core";
 import { Hono } from "hono";
 import { hc } from "hono/client";
+serve;
 import * as v from "valibot";
 
 const configSchema = v.object({
@@ -73,7 +74,7 @@ const raft = initializeRaftKv({
   nodes: config.nodes
     .filter((n) => n.id !== nodeId)
     .map((n) => ({ id: n.id, rpc: httpRpc(n.url) })),
-  timers: createTimers(
+  timers: createSimplestTimers(
     config.electionTimeout,
     config.heartbeatInterval,
     config.appendEntiresTimeout,
@@ -137,6 +138,6 @@ const app = new Hono()
     },
   );
 
-serve({ fetch: app.fetch, port: Number.parseInt(port) }, (info) => {
-  console.log(`Server is running on http://localhost:${port}`, info);
+serve({ fetch: app.fetch, port: Number.parseInt(port) }, () => {
+  console.log(`Server is running on http://localhost:${port}`);
 });

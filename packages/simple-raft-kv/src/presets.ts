@@ -16,20 +16,30 @@ export const randomDelay = (
   );
 };
 
-export const createTimers = (
+//TODO: fix memory leak
+export const createSimplestTimers = (
   electionTimeout: Readonly<[number, number]> | [number, number],
   heartbeatInterval: number,
   appendEntriesTimeout: number,
 ) => {
+  let killed = false;
+
   return {
-    heartbeatInterval: (cb) => setInterval(cb, heartbeatInterval),
-    electionTimeout: (cb) => {
+    heartbeatInterval: (cb: () => void) =>
+      setInterval(() => {
+        if (killed) return;
+        cb();
+      }, heartbeatInterval),
+    electionTimeout: (cb: () => void) => {
       let tm: NodeJS.Timeout;
       const start = () => {
         if (tm) clearTimeout(tm);
         const [min, max] = electionTimeout;
         const timeout = Math.random() * (max - min) + min;
-        tm = setTimeout(() => cb(), timeout);
+        tm = setTimeout(() => {
+          if (killed) return;
+          cb();
+        }, timeout);
       };
       start();
       return () => {
@@ -41,15 +51,20 @@ export const createTimers = (
     electionDuration: () => randomDelay(electionTimeout),
     appendEntriesTimeout: () =>
       randomDelay([appendEntriesTimeout, appendEntriesTimeout]),
-  } satisfies RaftKvParams["timers"];
+    kill: () => {
+      killed = true;
+    },
+  };
 };
+
+export type SimplestTimers = ReturnType<typeof createSimplestTimers>;
 
 export const createDirectRpc = (
   delay: Readonly<[number, number]> | [number, number],
 ) => {
   let node: RaftKvNode | null = null;
 
-  const setNode = (n: RaftKvNode) => {
+  const setNode = (n: RaftKvNode | null) => {
     node = n;
   };
 
