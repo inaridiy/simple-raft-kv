@@ -65,7 +65,6 @@ export const createTimers = (
         const [min, max] = electionTimeout;
         const timeout = Math.random() * (max - min) + min;
         tm = setTimeout(() => {
-          console.log("election timeout");
           cb();
         }, timeout);
       };

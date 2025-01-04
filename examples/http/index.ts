@@ -70,6 +70,7 @@ const storage = createMemoryStorage();
 const raft = initializeRaftKv({
   nodeId,
   storage,
+  logger: console.log,
   nodes: config.nodes
     .filter((n) => n.id !== nodeId)
     .map((n) => ({ id: n.id, rpc: httpRpc(n.url) })),

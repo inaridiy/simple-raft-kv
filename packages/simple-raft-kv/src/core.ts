@@ -18,6 +18,7 @@ export interface RaftKvParams {
   nodeId: string;
   nodes: { id: string; rpc: RaftKvRpc }[];
   storage: RaftKvStorage;
+  logger?: ((message: string) => void) | null;
   // 本来はelectionRetrySleepとelectionDurationは必要ないが、テストし易くするために分割している
   timers: {
     // (cb: ハートビートハンドラー) => void
@@ -33,7 +34,23 @@ export interface RaftKvParams {
 }
 
 export const initializeRaftKv = (params: RaftKvParams) => {
-  const { nodeId, nodes, storage, timers } = params;
+  const { nodeId, nodes, storage, timers, logger } = params;
+
+  // ログ出力関数
+  const log = (
+    level: "debug" | "info" | "warn" | "error",
+    message: string,
+    context?: Record<string, unknown>,
+  ) => {
+    const timestamp = new Date().toISOString();
+    const prefix = `[${timestamp}] [${nodeId}] [${level.toUpperCase()}]`;
+    const logMessage = context
+      ? `${prefix} ${message} ${JSON.stringify(context)}`
+      : `${prefix} ${message}`;
+    if (logger) {
+      logger(logMessage);
+    }
+  };
 
   let role = "follower" as NodeRole;
   let commitIndex = 0;
@@ -41,7 +58,7 @@ export const initializeRaftKv = (params: RaftKvParams) => {
   let matchIndex = new Map<string, number>();
 
   const _becomeFollower = async (term: number) => {
-    console.debug(`[${nodeId}] I'm the follower now!`);
+    log("info", "Node transitioning to follower state", { term });
     role = "follower";
     const newState = { term, votedFor: null };
     await storage.saveState(newState);
@@ -49,7 +66,7 @@ export const initializeRaftKv = (params: RaftKvParams) => {
   };
 
   const _becomeLeader = async () => {
-    console.debug(`[${nodeId}] I'm the leader now!`);
+    log("info", "Node transitioning to leader state");
     role = "leader";
 
     //1. リーダー用の変数を初期化
@@ -68,7 +85,7 @@ export const initializeRaftKv = (params: RaftKvParams) => {
 
   const _startElection = async () => {
     if (role === "leader") return;
-    console.debug(`[${nodeId}] Starting election...`);
+    log("info", "Starting election");
 
     // 1. 自分のtermを1増やして候補者になる
     const state = await storage.loadState();
@@ -78,6 +95,7 @@ export const initializeRaftKv = (params: RaftKvParams) => {
     await storage.saveState({ term, votedFor });
 
     const votesNeeded = Math.floor(nodes.length / 2) + 1;
+    log("debug", "Election details", { term, votesNeeded });
 
     const lastLogEntry = await storage.getLastLogEntry();
     const requestVoteArgs = {
@@ -86,6 +104,7 @@ export const initializeRaftKv = (params: RaftKvParams) => {
       lastLogIndex: lastLogEntry?.index ?? 0,
       lastLogTerm: lastLogEntry?.term ?? 0,
     };
+    log("debug", "Requesting votes with args", requestVoteArgs);
 
     const voteResultWaiting = new Promise<ElectionResult>((resolve) => {
       if (nodes.length === 0) resolve({ type: "win" });
@@ -93,10 +112,12 @@ export const initializeRaftKv = (params: RaftKvParams) => {
       let votesReceived = 1;
       const promises = nodes.map((node) =>
         node.rpc.requestVote(requestVoteArgs).then((result) => {
-          console.log(
-            `[${nodeId}] Received vote result from ${node.id}`,
+          log("debug", "Received vote result", {
+            from: node.id,
             result,
-          );
+            votesReceived,
+            votesNeeded,
+          });
           if (result === null) return;
 
           // 2. 他の候補者のtermが自分のtermより大きい場合は、即時にフォロワーになる
@@ -143,7 +164,11 @@ export const initializeRaftKv = (params: RaftKvParams) => {
       entries: [],
       leaderCommit: commitIndex,
     };
-    console.log(`[${nodeId}] Sending heartbeat...`, lastLogEntry);
+    log("debug", "Sending heartbeat", {
+      lastLogEntry,
+      term: state.term,
+      leaderCommit: commitIndex,
+    });
 
     //TODO: heartbeatが詰まる可能性に対処
     for (const node of nodes) _sendAppendEntriesExclusive(node, heartbeatArgs);
@@ -155,15 +180,27 @@ export const initializeRaftKv = (params: RaftKvParams) => {
   ) => {
     if (role !== "leader") return;
 
-    console.log(`[${nodeId}] Sending appendEntries to ${node.id}`, args);
+    log("debug", "Sending appendEntries", {
+      to: node.id,
+      entries: args.entries.length,
+      prevLogIndex: args.prevLogIndex,
+      term: args.term,
+    });
+
     const result = await Promise.race([
       node.rpc.appendEntries(args),
       timers.appendEntriesTimeout().then(() => null),
     ]);
-    console.log(
-      `[${nodeId}] Received appendEntries result from ${node.id}`,
-      result,
-    );
+
+    if (result === null) {
+      log("warn", "AppendEntries timed out", { to: node.id });
+    } else {
+      log("debug", "Received appendEntries result", {
+        from: node.id,
+        success: result.success,
+        term: result.term,
+      });
+    }
     // タイムアウトした場合はリトライ
     if (!result) {
       await timers.appendEntriesTimeout();
@@ -186,7 +223,6 @@ export const initializeRaftKv = (params: RaftKvParams) => {
 
     // 以後appendEntriesに失敗した = ログが不整合に対処する
     const nextIndexValue = (nextIndex.get(node.id) ?? 0) - 1;
-    console.log("nextIndexValue", nextIndexValue);
     if (nextIndexValue < 1) throw new Error("WTF: nextIndexValue < 1");
     nextIndex.set(node.id, nextIndexValue);
 
@@ -275,13 +311,31 @@ export const initializeRaftKv = (params: RaftKvParams) => {
     const { unlock } = await handleRequestLock();
     try {
       const state = await storage.loadState();
-      console.log(`[${nodeId}] handleAppendEntries`, args);
+      log("debug", "Handling appendEntries request", {
+        currentTerm: state.term,
+        leaderTerm: args.term,
+        prevLogIndex: args.prevLogIndex,
+        entriesCount: args.entries.length,
+        leaderCommit: args.leaderCommit,
+      });
 
       // 1. リーダーのtermが自分のtermより小さい場合は拒否
-      if (args.term < state.term) return { term: state.term, success: false };
+      if (args.term < state.term) {
+        log("warn", "Rejecting appendEntries - leader term is behind", {
+          leaderTerm: args.term,
+          currentTerm: state.term,
+        });
+        return { term: state.term, success: false };
+      }
 
       // 2. リーダーのtermが自分のtermより大きい場合はフォロワーになる
-      if (args.term > state.term) await _becomeFollower(args.term);
+      if (args.term > state.term) {
+        log("info", "Newer term detected in appendEntries", {
+          currentTerm: state.term,
+          leaderTerm: args.term,
+        });
+        await _becomeFollower(args.term);
+      }
       _resetElectionTimeout();
 
       // 3. prevLogIndexの位置にprevLogTermと一致するエントリがログにない場合、falseを返す (§5.3)
@@ -314,14 +368,29 @@ export const initializeRaftKv = (params: RaftKvParams) => {
     const { unlock } = await handleRequestLock();
     try {
       let state = await storage.loadState();
-      console.log(`[${nodeId}] handleRequestVote`, args);
+      log("debug", "Handling vote request", {
+        candidateId: args.candidateId,
+        candidateTerm: args.term,
+        currentTerm: state.term,
+        lastLogIndex: args.lastLogIndex,
+        lastLogTerm: args.lastLogTerm,
+      });
 
       // 1. 自分のtermがリクエストのtermより大きい場合は拒否
-      if (args.term < state.term)
+      if (args.term < state.term) {
+        log("warn", "Rejecting vote request - candidate term is behind", {
+          candidateTerm: args.term,
+          currentTerm: state.term,
+        });
         return { term: state.term, voteGranted: false };
+      }
 
       // 2. リクエストのtermが自分のtermより大きい場合はフォロワーになる
       if (args.term > state.term) {
+        log("info", "Newer term detected in vote request", {
+          currentTerm: state.term,
+          candidateTerm: args.term,
+        });
         await _becomeFollower(args.term);
         _resetElectionTimeout();
         // Stateを更新
