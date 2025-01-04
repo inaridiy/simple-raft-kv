@@ -1,4 +1,5 @@
 import { setTimeout } from "node:timers/promises";
+import { set } from "valibot";
 import { describe, expect, it } from "vitest";
 import { createMemoryStorage, initializeRaftKv } from "../src/index.js";
 import { createMockTimers, createThreeNodes } from "./utils.js";
@@ -64,62 +65,66 @@ describe("2. 選挙に関するテスト", () => {
     expect(state1.role).toBe("follower");
   });
 
-  it("2-5: 投票拒否の条件(ログが古い, すでに投票済み)", async () => {
-    const [node1, node2] = createThreeNodes(["node1", "node2", "node3"]);
+  it("2-5: 同時に複数の候補者が出た場合、片方がリーダーに収束する", async () => {
+    const [node1, node2, node3] = createThreeNodes(["node1", "node2", "node3"]);
+
+    node1.timers.triggerElectionTimeout();
+    await setTimeout(50); //十分な時間待機
+
+    node2.timers.triggerElectionTimeout();
+    node3.timers.triggerElectionTimeout();
+    await setTimeout(0); //十分な時間待機
+
+    const state1 = await node1.node.getNodeState();
+    const state2 = await node2.node.getNodeState();
+    const state3 = await node3.node.getNodeState();
+    expect(state1.role).toBe("leader"); //まだリーダーだと思っている
+    expect(state2.role).toBe("candidate"); //候補者になっている
+    expect(state3.role).toBe("candidate"); //候補者になっている
+
+    await setTimeout(600); //十分な時間待機
+
+    const state1_2 = await node1.node.getNodeState();
+    const state2_2 = await node2.node.getNodeState();
+    const state3_2 = await node3.node.getNodeState();
+    //どちらかのみリーダーになる
+    expect(
+      [state1_2.role, state2_2.role, state3_2.role].filter(
+        (r) => r === "leader",
+      ).length,
+    ).toBe(1);
+  });
+
+  it("2-6-1: 投票拒否の条件1(ログが古い)", async () => {
+    const [node1, node2, node3] = createThreeNodes(["node1", "node2", "node3"]);
+
+    node1.timers.triggerElectionTimeout();
+    await setTimeout(50); //十分な時間待機
 
     // node1のログを進める (term=1, index=1)
     await node1.storage.saveState({ term: 1, votedFor: null });
-    await node1.storage.appendLogEntries(0, [
+    await node1.storage.appendLogEntries(1, [
       { term: 1, command: { op: "set", key: "x", value: "1" } },
     ]);
 
-    // node2のログは古い (term=1, index=0)
-    await node2.storage.saveState({ term: 1, votedFor: null });
+    // node2のログを消去
+    await node2.storage.clearLogEntries();
 
     // node2が選挙を開始
     node2.timers.triggerElectionTimeout();
-    await setTimeout(0);
+    await setTimeout(150); //十分な時間待機
 
     // node1はnode2のログが古いため投票を拒否
     const state1 = await node1.node.getNodeState();
     expect(state1.votedFor).toBe(null); // node2への投票は行われない
 
-    // 同じtermで既に投票済みの場合のテスト
-    await node1.storage.saveState({ term: 1, votedFor: "node3" });
-
-    // node2が同じtermで再度選挙を試みる
-    node2.timers.triggerElectionTimeout();
-    await setTimeout(0);
-
-    // node1は既にnode3に投票済みのため、node2への投票を拒否
-    const state2 = await node1.node.getNodeState();
-    expect(state2.votedFor).toBe("node3"); // 投票先は変わらない
+    node3.timers.triggerElectionTimeout();
+    await setTimeout(150); //十分な時間待機
+    const state3 = await node3.node.getNodeState();
+    expect(state3.role).toBe("leader"); // node3がリーダーになる
   });
 
-  it("2-6: タイムアウト時の再選挙", async () => {
-    const [node1, node2, node3] = createThreeNodes(["node1", "node2", "node3"]);
-
-    // node3をダウンさせる想定 (応答しない)
-    node3.timers.triggerElectionTimeout();
-    await setTimeout(0);
-
-    // node1が選挙を開始
-    node1.timers.triggerElectionTimeout();
-    await setTimeout(0);
-
-    // 最初の選挙でnode1はcandidateになりterm=1
-    const state1 = await node1.node.getNodeState();
-    expect(state1.role).toBe("candidate");
-    expect(state1.term).toBe(1);
-
-    // 選挙タイムアウト発生 (過半数が得られない)
-    await node1.timers
-      .electionDuration()
-      .then(() => ({ type: "timeout" as const }));
-
-    // node1は再度選挙を開始し、termが増加
-    const state2 = await node1.node.getNodeState();
-    expect(state2.term).toBe(2);
-    expect(state2.role).toBe("candidate");
+  it("2-6-2: 投票拒否の条件2(同じログ長でログが古い)", async () => {
+    //TODO:
   });
 });

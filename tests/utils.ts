@@ -1,6 +1,12 @@
 import { type RaftKvNode, initializeRaftKv } from "../src/core.js";
 import { createMemoryStorage } from "../src/storage.js";
-import type { RaftKvRpc } from "../src/types.js";
+import type {
+  AppendEntriesArgs,
+  AppendEntriesReply,
+  RaftKvRpc,
+  RequestVoteArgs,
+  RequestVoteReply,
+} from "../src/types.js";
 
 const rpcDelay = [5, 20] as const;
 const electionRetrySleep = [150, 150] as const;
@@ -98,4 +104,78 @@ export const createThreeNodes = (ids: [string, string, string]) => {
   });
 
   return nodes;
+};
+
+interface MockRpcConfig {
+  requestVoteResponse?: RequestVoteReply;
+  appendEntriesResponse?:
+    | AppendEntriesReply
+    | ((args: AppendEntriesArgs) => AppendEntriesReply);
+  requestVoteDelay?: number;
+  appendEntriesDelay?: number;
+  failureRate?: number;
+  onAppendEntries?: (args: AppendEntriesArgs) => void;
+  onRequestVote?: (args: RequestVoteArgs) => void;
+}
+
+export const createMockRpc = (config: MockRpcConfig = {}): RaftKvRpc => {
+  return {
+    requestVote: async (args: RequestVoteArgs): Promise<RequestVoteReply> => {
+      if (config.requestVoteDelay) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, config.requestVoteDelay),
+        );
+      }
+      if (config.failureRate && Math.random() < config.failureRate) {
+        throw new Error("Network error");
+      }
+      config.onRequestVote?.(args);
+      return (
+        config.requestVoteResponse ?? {
+          term: args.term,
+          voteGranted: true,
+        }
+      );
+    },
+    appendEntries: async (
+      args: AppendEntriesArgs,
+    ): Promise<AppendEntriesReply> => {
+      if (config.appendEntriesDelay) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, config.appendEntriesDelay),
+        );
+      }
+      if (config.failureRate && Math.random() < config.failureRate) {
+        throw new Error("Network error");
+      }
+      config.onAppendEntries?.(args);
+      if (typeof config.appendEntriesResponse === "function") {
+        return config.appendEntriesResponse(args);
+      }
+      return (
+        config.appendEntriesResponse ?? {
+          term: args.term,
+          success: true,
+        }
+      );
+    },
+  };
+};
+
+export type MockRpc = ReturnType<typeof createMockRpc>;
+
+export const createThreeNodesWithMockRpc = (
+  nodeId: string,
+  rpcs: [[string, MockRpc], [string, MockRpc]],
+) => {
+  const timers = createMockTimers();
+  const storage = createMemoryStorage();
+  const node = initializeRaftKv({
+    nodeId,
+    nodes: rpcs.map(([id, rpc]) => ({ id, rpc })),
+    timers,
+    storage,
+  });
+
+  return { node, timers, storage };
 };

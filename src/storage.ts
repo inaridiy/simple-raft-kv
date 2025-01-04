@@ -13,9 +13,7 @@ type MemoryStorageState = {
   kvStore: Map<string, string>;
 };
 
-export const createMemoryStorage = (
-  injectState?: MemoryStorageState,
-): RaftKvStorage => {
+export const createMemoryStorage = (injectState?: MemoryStorageState) => {
   // Initialize in-memory state
   const state: MemoryStorageState = injectState || {
     persistentState: { term: 0, votedFor: null },
@@ -54,11 +52,11 @@ export const createMemoryStorage = (
         ...state.logEntries.slice(0, from - 1),
         ...entries.map((entry, idx) => ({
           ...entry,
-          index: from + idx,
+          index: from + idx + 1,
         })),
       ];
 
-      return from + entries.length - 1;
+      return from + entries.length; // indexは1から始まる
     },
 
     async getLastLogEntry(): Promise<PersistedLogEntry | null> {
@@ -80,6 +78,11 @@ export const createMemoryStorage = (
         }
       }
       state.lastApplied = endIndex;
+    },
+    async clearLogEntries() {
+      state.logEntries = [];
+      state.lastApplied = 0;
+      state.kvStore = new Map();
     },
   };
 };

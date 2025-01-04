@@ -40,12 +40,14 @@ export const initializeRaftKv = (params: RaftKvParams) => {
   let matchIndex = new Map<string, number>();
 
   const _becomeFollower = async (term: number) => {
+    console.debug(`[${nodeId}] I'm the follower now!`);
     role = "follower";
     const newState = { term, votedFor: null };
     await storage.saveState(newState);
   };
 
   const _becomeLeader = async () => {
+    console.debug(`[${nodeId}] I'm the leader now!`);
     role = "leader";
 
     //1. リーダー用の変数を初期化
@@ -64,6 +66,7 @@ export const initializeRaftKv = (params: RaftKvParams) => {
 
   const _startElection = async () => {
     if (role === "leader") return;
+    console.debug(`[${nodeId}] Starting election...`);
 
     // 1. 自分のtermを1増やして候補者になる
     const state = await storage.loadState();
@@ -96,6 +99,7 @@ export const initializeRaftKv = (params: RaftKvParams) => {
         }),
       );
 
+      //過半数以上からvoteGrated:falseを受け取った場合、失敗扱いでいいのか？
       Promise.all(promises).then(() => resolve({ type: "timeout" }));
     });
     const voteResult = await Promise.race([
@@ -114,7 +118,7 @@ export const initializeRaftKv = (params: RaftKvParams) => {
     } else {
       // 4. タイムアウトした場合は再選挙
       await timers.electionRetrySleep();
-      _startElection();
+      if (role === "candidate") await _startElection();
     }
   };
 
@@ -131,6 +135,7 @@ export const initializeRaftKv = (params: RaftKvParams) => {
       entries: [],
       leaderCommit: commitIndex,
     };
+    console.log(`[${nodeId}] Sending heartbeat...`, lastLogEntry);
 
     //TODO: heartbeatが詰まる可能性に対処
     for (const node of nodes) _sendAppendEntriesExclusive(node, heartbeatArgs);
@@ -282,6 +287,8 @@ export const initializeRaftKv = (params: RaftKvParams) => {
     const unlock = await handleRequestLock();
     try {
       const state = await storage.loadState();
+      console.log(`[${nodeId}] handleRequestVote`, args);
+
       // 1. 自分のtermがリクエストのtermより大きい場合は拒否
       if (args.term < state.term)
         return { term: state.term, voteGranted: false };
@@ -327,6 +334,7 @@ export const initializeRaftKv = (params: RaftKvParams) => {
 
   const getNodeState = async (): Promise<MemoryState & PersistentState> => {
     const persisted = await storage.loadState();
+
     return { role, commitIndex, ...persisted };
   };
 
