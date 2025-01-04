@@ -1,12 +1,6 @@
 import * as v from "valibot";
 
 // この実装用の定義
-
-export const RaftKvOptionsSchema = v.object({});
-
-export type RaftKvOptionsInput = v.InferInput<typeof RaftKvOptionsSchema>;
-export type RaftKvOptions = v.InferOutput<typeof RaftKvOptionsSchema>;
-
 export type RaftKvStorage = {
   loadState: () => Promise<PersistentState>;
   saveState: (state: PersistentState) => Promise<void>;

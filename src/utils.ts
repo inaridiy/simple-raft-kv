@@ -1,3 +1,5 @@
+import type { RaftKvParams } from "./core.js";
+
 export const createNoopSignal = () => {
   return new AbortController().signal;
 };
@@ -42,3 +44,40 @@ export function createLock() {
 
   return lock;
 }
+
+export const createTimers = (
+  electionTimeout: [number, number],
+  heartbeatInterval: number,
+  appendEntriesTimeout: number,
+) => {
+  return {
+    heartbeatInterval: (cb) => setInterval(cb, heartbeatInterval),
+    electionTimeout: (cb) => {
+      const [min, max] = electionTimeout;
+      const timeout = Math.random() * (max - min) + min;
+      let tm: NodeJS.Timeout;
+      const start = () => {
+        tm = setTimeout(() => cb(), timeout);
+      };
+      return () => {
+        clearTimeout(tm);
+        start();
+      };
+    },
+    electionRetrySleep: () => {
+      const [min, max] = electionTimeout;
+      const timeout = Math.random() * (max - min) + min;
+      return new Promise((resolve) => setTimeout(resolve, timeout));
+    },
+    electionDuration: () => {
+      const [min, max] = electionTimeout;
+      const timeout = Math.random() * (max - min) + min;
+      return new Promise((resolve) => setTimeout(resolve, timeout));
+    },
+    appendEntriesTimeout: () => {
+      return new Promise((resolve) =>
+        setTimeout(resolve, appendEntriesTimeout),
+      );
+    },
+  } satisfies RaftKvParams["timers"];
+};

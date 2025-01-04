@@ -18,6 +18,7 @@ export interface RaftKvParams {
   nodeId: string;
   nodes: { id: string; rpc: RaftKvRpc }[];
   storage: RaftKvStorage;
+  // 本来はelectionRetrySleepとelectionDurationは必要ないが、テストし易くするために分割している
   timers: {
     // (cb: ハートビートハンドラー) => void
     heartbeatInterval: (cb: () => void) => void;
@@ -339,12 +340,13 @@ export const initializeRaftKv = (params: RaftKvParams) => {
 
   const handleClientRequest = async (commands: KvCommand[]) => {
     const { votedFor } = await storage.loadState();
-    if (role === "follower") return { type: "redirect", redirect: votedFor };
-    if (role === "candidate") return { type: "in-election" };
+    if (role === "follower")
+      return { type: "redirect" as const, redirect: votedFor };
+    if (role === "candidate") return { type: "in-election" as const };
 
     await _appendAndCommitCommands(commands);
 
-    return { type: "success" };
+    return { type: "success" as const };
   };
 
   const getNodeState = async (): Promise<MemoryState & PersistentState> => {
