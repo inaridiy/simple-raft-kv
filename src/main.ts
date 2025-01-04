@@ -15,12 +15,6 @@ import {
 } from "./types.js";
 import { createTimers } from "./utils.js";
 
-const argsSchema = v.object({
-  nodeId: v.string(),
-  port: v.number(),
-  config: v.string(),
-});
-
 const configSchema = v.object({
   electionTimeout: v.tuple([v.number(), v.number()]),
   heartbeatInterval: v.number(),
@@ -28,10 +22,20 @@ const configSchema = v.object({
   nodes: v.array(v.object({ id: v.string(), url: v.string() })),
 });
 
-const { values } = nodeUtils.parseArgs({});
-const { nodeId, port, config: configPath } = v.parse(argsSchema, values);
+const { values } = nodeUtils.parseArgs({
+  options: {
+    nodeId: { type: "string" },
+    port: { type: "string" },
+    config: { type: "string" },
+  },
+});
+const { nodeId, port, config: configPath } = values;
+if (!nodeId) throw new Error("nodeId is required");
+if (!port) throw new Error("port is required");
+if (!configPath) throw new Error("config is required");
 
 const configJson = await fs.readFile(configPath, "utf-8");
+console.log("configJson", configJson);
 const config = v.parse(configSchema, JSON.parse(configJson));
 
 const httpRpc = (url: string): RaftKvRpc => {
@@ -117,6 +121,7 @@ const app = new Hono()
         return c.json({ ok: false, error: "election in progress" }, 503);
       }
 
+      //行儀の悪い実装
       const values = keys.map((key) => storage.internal.kvStore.get(key));
       return c.json({ ok: true, values } as const);
     },
@@ -124,4 +129,4 @@ const app = new Hono()
 
 console.log(`Server is running on http://localhost:${port}`);
 
-serve({ fetch: app.fetch, port });
+serve({ fetch: app.fetch, port: Number.parseInt(port) });

@@ -53,12 +53,16 @@ export const createTimers = (
   return {
     heartbeatInterval: (cb) => setInterval(cb, heartbeatInterval),
     electionTimeout: (cb) => {
-      const [min, max] = electionTimeout;
-      const timeout = Math.random() * (max - min) + min;
       let tm: NodeJS.Timeout;
       const start = () => {
-        tm = setTimeout(() => cb(), timeout);
+        const [min, max] = electionTimeout;
+        const timeout = Math.random() * (max - min) + min;
+        tm = setTimeout(() => {
+          console.log("election timeout");
+          cb();
+        }, timeout);
       };
+      start();
       return () => {
         clearTimeout(tm);
         start();
