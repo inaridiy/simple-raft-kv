@@ -18,6 +18,23 @@ examples/      # 設定ファイルとHTTPリクエスト例
 
 ## 実行方法
 
+### Test
+
+```bash
+pnpm test
+```
+
+### Markdown コンソール
+
+```bash
+pnpm install
+cd examples/demo
+
+pnpm tsx index.ts --config many-node-config.json --port 4000
+```
+
+examples/demo/console/status.md にアクセスしてください。
+
 ### HTTP サーバー
 
 ```bash
