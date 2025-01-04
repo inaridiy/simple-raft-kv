@@ -35,7 +35,6 @@ if (!port) throw new Error("port is required");
 if (!configPath) throw new Error("config is required");
 
 const configJson = await fs.readFile(configPath, "utf-8");
-console.log("configJson", configJson);
 const config = v.parse(configSchema, JSON.parse(configJson));
 
 const httpRpc = (url: string): RaftKvRpc => {
