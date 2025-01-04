@@ -18,23 +18,30 @@ examples/      # 設定ファイルとHTTPリクエスト例
 
 ## 実行方法
 
+### HTTP サーバー
+
+```bash
+pnpm install
+cd examples/http
+```
+
 シングルノード:
 
-```
-pnpm tsx src/main.ts --config examples/single-node-config.json --nodeId node1 --port 4001
+```bash
+pnpm tsx index.ts --config single-node-config.json --nodeId node1 --port 4001
 ```
 
 3 ノードクラスタ:
 
-```
-pnpm tsx src/main.ts --config examples/three-nodes-config.json --nodeId node1 --port 4001
-pnpm tsx src/main.ts --config examples/three-nodes-config.json --nodeId node2 --port 4002
-pnpm tsx src/main.ts --config examples/three-nodes-config.json --nodeId node3 --port 4003
+```bash
+pnpm tsx index.ts --config three-nodes-config.json --nodeId node1 --port 4001
+pnpm tsx index.ts --config three-nodes-config.json --nodeId node2 --port 4002
+pnpm tsx index.ts --config three-nodes-config.json --nodeId node3 --port 4003
 ```
 
 ## API の使用例
 
-```
+```bash
 # 値のセット
 POST http://localhost:4001/mutate
 {

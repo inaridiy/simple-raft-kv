@@ -5,15 +5,15 @@ import { vValidator } from "@hono/valibot-validator";
 import { Hono } from "hono";
 import { hc } from "hono/client";
 import * as v from "valibot";
-import { initializeRaftKv } from "./core.js";
-import { createMemoryStorage } from "./storage.js";
 import {
   AppendEntriesArgsSchema,
   KvCommandSchema,
   type RaftKvRpc,
   RequestVoteArgsSchema,
-} from "./types.js";
-import { createTimers } from "./utils.js";
+  createMemoryStorage,
+  createTimers,
+  initializeRaftKv,
+} from "../../src/index.js";
 
 const configSchema = v.object({
   electionTimeout: v.tuple([v.number(), v.number()]),

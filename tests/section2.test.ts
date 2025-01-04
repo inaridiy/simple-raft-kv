@@ -1,5 +1,4 @@
 import { setTimeout } from "node:timers/promises";
-import { set } from "valibot";
 import { describe, expect, it } from "vitest";
 import { createMemoryStorage, initializeRaftKv } from "../src/index.js";
 import { createMockTimers, createNNodes } from "./utils.js";
