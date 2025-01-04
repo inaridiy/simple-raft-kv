@@ -19,7 +19,7 @@ const configSchema = v.object({
   electionTimeout: v.tuple([v.number(), v.number()]),
   heartbeatInterval: v.number(),
   appendEntiresTimeout: v.number(),
-  nodes: v.array(v.object({ id: v.string(), url: v.string() })),
+  nodes: v.array(v.string()),
 });
 
 const { values } = nodeUtils.parseArgs({
@@ -50,11 +50,11 @@ const initNode = async (nodeId: string) => {
   if (!rpc) throw new Error(`rpc not found for node ${nodeId}`);
 
   const peers = config.nodes
-    .filter((n) => n.id !== nodeId)
-    .map((n) => {
-      const rpc = rpcs.get(n.id);
-      if (!rpc) throw new Error(`rpc not found for node ${n.id}`);
-      return { id: n.id, rpc: rpc.rpc };
+    .filter((id) => id !== nodeId)
+    .map((id) => {
+      const rpc = rpcs.get(id);
+      if (!rpc) throw new Error(`rpc not found for node ${id}`);
+      return { id, rpc: rpc.rpc };
     });
 
   const existingNode = nodes.get(nodeId);
@@ -80,8 +80,8 @@ const initNode = async (nodeId: string) => {
   rpc.setNode(runtime);
 };
 
-for (const node of config.nodes) rpcs.set(node.id, createDirectRpc([5, 20]));
-for (const node of config.nodes) await initNode(node.id);
+for (const nodeId of config.nodes) rpcs.set(nodeId, createDirectRpc([5, 20]));
+for (const nodeId of config.nodes) await initNode(nodeId);
 
 const topPageTemplate = async (nodes: Map<string, Node>) => {
   const fullStates = await Promise.all(
@@ -121,6 +121,9 @@ const topPageTemplate = async (nodes: Map<string, Node>) => {
     markdown += JSON.stringify(state, null, 2);
     markdown += "\n```\n\n";
 
+    markdown += "#### Actions\n\n";
+    markdown += `[Set random Value to KV](http://localhost:${port}/set-random-values?nodeId=${nodeId})\n\n`;
+
     markdown += "#### Log Entries\n\n";
     markdown += "| Index | Term | Command |\n";
     markdown += "|-------|------|---------|\n";
@@ -142,7 +145,11 @@ const topPageTemplate = async (nodes: Map<string, Node>) => {
 
     markdown += "Kv Store\n\n";
     markdown += "```json\n";
-    markdown += JSON.stringify(node.storage.internal.kvStore, null, 2);
+    markdown += JSON.stringify(
+      Object.fromEntries(node.storage.internal.kvStore.entries()),
+      null,
+      2,
+    );
     markdown += "\n```\n\n";
   }
 
@@ -161,6 +168,34 @@ setInterval(async () => {
 }, 100);
 
 const app = new Hono();
+
+app.get(
+  "/set-random-values",
+  vValidator(
+    "query",
+    v.object({
+      nodeId: v.string(),
+    }),
+  ),
+  async (c) => {
+    const { nodeId } = c.req.valid("query");
+    const node = nodes.get(nodeId);
+    if (!node?.runtime) return c.text("Node not found or not running", 404);
+
+    const state = await node.runtime.getNodeState();
+    if (state.role !== "leader") {
+      return c.text("Not a leader", 400);
+    }
+
+    const commands = [
+      { op: "set" as const, key: "foo", value: Math.random().toString() },
+      { op: "set" as const, key: "bar", value: Math.random().toString() },
+    ];
+    await node.runtime.handleClientRequest(commands);
+
+    return c.text("OK");
+  },
+);
 
 app.get(
   "/toggle-power",
