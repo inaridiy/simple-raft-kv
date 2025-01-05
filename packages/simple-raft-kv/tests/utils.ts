@@ -1,6 +1,6 @@
 import { initializeRaftKv } from "../src/core.js";
 import { createDirectRpc as createDirectRpcWithRandomDelay } from "../src/presets.js";
-import { createMemoryStorage } from "../src/storage.js";
+import { createMemoryStorage } from "../src/presets.js";
 import type {
   AppendEntriesArgs,
   AppendEntriesReply,
